@@ -16,7 +16,7 @@ const interval = 100
 // LockManager local lock manager
 type LockManager struct {
 	mux    *sync.Mutex
-	locked map[string]bool
+	locked map[string]time.Time
 }
 
 func init() {
@@ -27,23 +27,19 @@ func init() {
 func New(u *url.URL) (godilock.DLocker, error) {
 	return &LockManager{
 		mux:    &sync.Mutex{},
-		locked: make(map[string]bool),
+		locked: make(map[string]time.Time),
 	}, nil
 }
 
 func (l *LockManager) lock(id string, ttl int) error {
 	l.mux.Lock()
 	defer l.mux.Unlock()
-	if l.locked[id] {
+	t, ok := l.locked[id]
+	if ok && t.After(time.Now()) {
 		return errors.New("resource locked")
 	}
 
-	l.locked[id] = true
-
-	go func(l *LockManager) {
-		time.Sleep(time.Duration(ttl) * time.Second)
-		l.Unlock(nil, id)
-	}(l)
+	l.locked[id] = time.Now().Add(time.Duration(ttl) * time.Second)
 
 	return nil
 }
@@ -79,7 +75,7 @@ func (l *LockManager) Lock(ctx context.Context, id string, ttl int) error {
 func (l *LockManager) Unlock(ctx context.Context, id string) error {
 	l.mux.Lock()
 	defer l.mux.Unlock()
-	l.locked[id] = false
+	delete(l.locked, id)
 	return nil
 }
 
